@@ -27,7 +27,9 @@ itself, each trimmed to one side of the split line:
 ```
 
 Because each output folder is a duplicate, clipping masks, blend modes,
-opacity, layer names and stacking order are all carried over unchanged.
+opacity and stacking order are all carried over unchanged. Photoshop appends
+a "copy" suffix to the names inside a duplicated group, so the script records
+the original names beforehand and writes them back.
 
 ### Left and right are mirrored
 
@@ -50,13 +52,13 @@ you use (`*`, numbering, and so on) is preserved.
 - Recognises both `LR` and `左右` suffixes
 - Splits at a **vertical guide** if the document has one, otherwise at the
   canvas centre
-- Two split methods, chosen at run time:
-  - **Layer mask** — non-destructive, so the boundary can be adjusted afterwards
-  - **Delete pixels** — destructive, ready to import into Cubism
+- Deletes the pixels outside each half, so the PSD can be imported into
+  Cubism as-is
+- Restores the original layer names inside the duplicated folders
 - Optional **overlap** in pixels, extending each half past the split line, to
   avoid a visible seam when the parts move
-- Combines with an existing layer mask instead of overwriting it
-- Rasterizes text, smart object and fill layers when deleting pixels
+- Optionally collapses the groups afterwards, so the layer panel stays readable
+- Rasterizes text, smart object and fill layers before trimming them
 - Runs as a single history state, so one Undo reverts the whole operation
 - Reports what happened: folders split, layers trimmed, layers skipped, and any
   folder that came out empty
@@ -90,26 +92,29 @@ In Photoshop, choose **File → Scripts → Browse...** and select
 2. If the character is not centred on the canvas, place a single vertical guide
    on the axis of symmetry.
 3. Run the script.
-4. Choose a split method and an overlap, then press **Split**.
+4. Set an overlap if you want one, then press **Split**.
 
 The original `LR` / `左右` folders are deleted. One Undo restores them.
 
 ## Importing into Cubism
 
-**Cubism Editor does not read PSD layer masks.** If you split with the layer
-mask method, apply the masks (Layer → Layer Mask → Apply) before importing, or
-the split will not be reflected — and a PSD that still carries masks can import
-incorrectly.
+The split itself is destructive, so the result imports into Cubism as-is.
 
-The **Delete pixels** method produces a PSD that can be imported as-is.
+Note that **Cubism Editor does not read PSD layer masks** at all. If layers in
+your source file already carry masks, apply them (Layer → Layer Mask → Apply)
+before importing — a PSD that still carries masks can import incorrectly.
 
 ## Notes and limits
 
+- **Folder open/closed state cannot be restored.** Photoshop exposes
+  `layerSectionExpanded` as a readable property but provides no scripting
+  command to set it, so there is no way to reproduce the original arrangement.
+  The **Collapse groups when finished** option is the closest thing; it
+  collapses every group in the document, not only the ones that were split.
 - Only the outermost matching folder in any branch is processed. An `LR` folder
   nested inside another `LR` folder is split along with its parent, not twice.
-- Adjustment layers are skipped when deleting pixels; they are usually clipped
-  to a layer that has already been trimmed. They are masked normally in layer
-  mask mode.
+- Adjustment layers are skipped; they are usually clipped to a layer that has
+  already been trimmed.
 - A folder whose artwork does not cross the split line still produces both
   halves; the empty one is listed in the result dialog so you can delete it.
 

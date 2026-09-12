@@ -19,7 +19,9 @@
  *                   "*earR"  keeps the LEFT half of the canvas
  *
  * Everything else about the folder is preserved by duplication: clipping
- * masks, blend modes, opacity, layer names and stacking order.
+ * masks, blend modes, opacity and stacking order. Photoshop appends a
+ * "copy" suffix to the names inside a duplicated group, so the original
+ * names are recorded before duplicating and written back afterwards.
  *
  * Non-ASCII text is written as \u escapes so the source stays plain ASCII
  * and does not depend on how Photoshop guesses the file encoding.
@@ -35,7 +37,7 @@
     var doc = app.activeDocument;
 
     /*
-     * Recognised suffix pairs, longest first.
+     * Recognised suffix pairs.
      *
      * "left" is the character's own left, which is the RIGHT half of the
      * canvas, and "right" is the LEFT half.
@@ -55,9 +57,6 @@
             right: KANJI_RIGHT
         }
     ];
-
-    var MODE_MASK = "mask";
-    var MODE_DELETE = "delete";
 
     var cTID = function (s) { return charIDToTypeID(s); };
     var sTID = function (s) { return stringIDToTypeID(s); };
@@ -136,6 +135,55 @@
 
     /*
      * ----------------------------------------------------------------
+     * Layer names.
+     *
+     * A duplicated group comes back with "copy" appended to the names
+     * inside it. The copy has the same shape as the original, so the name
+     * tree can be recorded up front and replayed onto the duplicate by
+     * position.
+     * ----------------------------------------------------------------
+     */
+
+    function snapshotNames(container) {
+
+        var entries = [];
+
+        for (var i = 0; i < container.layers.length; i++) {
+
+            var layer = container.layers[i];
+
+            entries.push({
+                name: layer.name,
+                children: layer.typename === "LayerSet"
+                    ? snapshotNames(layer)
+                    : null
+            });
+        }
+
+        return entries;
+    }
+
+    function restoreNames(container, entries) {
+
+        var count = Math.min(container.layers.length, entries.length);
+
+        for (var i = 0; i < count; i++) {
+
+            var layer = container.layers[i];
+            var entry = entries[i];
+
+            if (layer.name !== entry.name) {
+                layer.name = entry.name;
+            }
+
+            if (layer.typename === "LayerSet" && entry.children !== null) {
+                restoreNames(layer, entry.children);
+            }
+        }
+    }
+
+    /*
+     * ----------------------------------------------------------------
      * Split line.
      *
      * A single vertical guide wins over the canvas centre, so a character
@@ -187,57 +235,14 @@
 
     /*
      * ----------------------------------------------------------------
-     * Action Manager helpers.
+     * Selection helpers.
      * ----------------------------------------------------------------
      */
 
-    function hasUserMask() {
-
-        var ref = new ActionReference();
-
-        ref.putProperty(cTID("Prpr"), sTID("userMaskEnabled"));
-        ref.putEnumerated(cTID("Lyr "), cTID("Ordn"), cTID("Trgt"));
-
-        try {
-            executeActionGet(ref);
-            return true;
-        }
-        catch (e) {
-            return false;
-        }
-    }
-
     /*
-     * Add a layer mask that reveals the current selection.
+     * Make sure edits land on the pixels and not on a layer mask that
+     * happens to be targeted.
      */
-    function addRevealSelectionMask() {
-
-        var desc = new ActionDescriptor();
-
-        desc.putClass(cTID("Nw  "), cTID("Chnl"));
-
-        var ref = new ActionReference();
-        ref.putEnumerated(cTID("Chnl"), cTID("Chnl"), cTID("Msk "));
-
-        desc.putReference(cTID("At  "), ref);
-        desc.putEnumerated(cTID("Usng"), cTID("UsrM"), cTID("RvlS"));
-
-        executeAction(cTID("Mk  "), desc, DialogModes.NO);
-    }
-
-    function targetMaskChannel() {
-
-        var desc = new ActionDescriptor();
-
-        var ref = new ActionReference();
-        ref.putEnumerated(cTID("Chnl"), cTID("Chnl"), cTID("Msk "));
-
-        desc.putReference(cTID("null"), ref);
-        desc.putBoolean(cTID("MkVs"), false);
-
-        executeAction(cTID("slct"), desc, DialogModes.NO);
-    }
-
     function targetCompositeChannels() {
         doc.activeChannels = doc.componentChannels;
     }
@@ -257,15 +262,22 @@
         );
     }
 
-    function fillSelectionBlack() {
+    /*
+     * Collapse every group in the document.
+     *
+     * Photoshop has no scripting command for collapsing a single group;
+     * "layerSectionExpanded" can be read but not written, so this is the
+     * only way to get the layer panel back to a readable state.
+     */
+    function collapseAllGroups() {
 
-        var black = new SolidColor();
-
-        black.rgb.red = 0;
-        black.rgb.green = 0;
-        black.rgb.blue = 0;
-
-        doc.selection.fill(black);
+        try {
+            app.runMenuItem(sTID("collapseAllGroupsEvent"));
+            return true;
+        }
+        catch (e) {
+            return false;
+        }
     }
 
     /*
@@ -274,7 +286,7 @@
      * ----------------------------------------------------------------
      */
 
-    function trimLayer(layer, region, mode, report) {
+    function trimLayer(layer, region, report) {
 
         if (region.removeX1 <= region.removeX0) {
             return;
@@ -282,42 +294,6 @@
 
         doc.activeLayer = layer;
 
-        if (mode === MODE_MASK) {
-
-            try {
-
-                targetCompositeChannels();
-
-                if (hasUserMask()) {
-
-                    /*
-                     * Combine with the existing mask by painting the removed
-                     * side black.
-                     */
-                    selectRect(region.removeX0, region.removeX1);
-                    targetMaskChannel();
-                    fillSelectionBlack();
-                    targetCompositeChannels();
-                }
-                else {
-                    selectRect(region.keepX0, region.keepX1);
-                    addRevealSelectionMask();
-                    targetCompositeChannels();
-                }
-
-                doc.selection.deselect();
-                report.masked++;
-            }
-            catch (e) {
-                report.failed.push(layer.name + " - " + e.message);
-            }
-
-            return;
-        }
-
-        /*
-         * MODE_DELETE.
-         */
         var kind = layer.kind;
 
         if (kind === LayerKind.TEXT ||
@@ -353,18 +329,18 @@
         }
     }
 
-    function trimContainer(container, region, mode, report) {
+    function trimContainer(container, region, report) {
 
         for (var i = 0; i < container.layers.length; i++) {
 
             var layer = container.layers[i];
 
             if (layer.typename === "LayerSet") {
-                trimContainer(layer, region, mode, report);
+                trimContainer(layer, region, report);
                 continue;
             }
 
-            trimLayer(layer, region, mode, report);
+            trimLayer(layer, region, report);
         }
     }
 
@@ -396,7 +372,7 @@
      * ----------------------------------------------------------------
      */
 
-    function processFolder(target, splitX, overlap, mode, report) {
+    function processFolder(target, splitX, overlap, report) {
 
         var folder = target.folder;
         var rule = target.rule;
@@ -413,29 +389,29 @@
         var rCut = clamp(splitX + overlap, 0, docWidth);
 
         var lRegion = {
-            keepX0: lCut,
-            keepX1: docWidth,
             removeX0: 0,
             removeX1: lCut
         };
 
         var rRegion = {
-            keepX0: 0,
-            keepX1: rCut,
             removeX0: rCut,
             removeX1: docWidth
         };
 
+        var names = snapshotNames(folder);
+
         var rCopy = folder.duplicate();
         rCopy.name = base + rule.right;
+        restoreNames(rCopy, names);
 
         var lCopy = folder.duplicate();
         lCopy.name = base + rule.left;
+        restoreNames(lCopy, names);
 
         lCopy.move(rCopy, ElementPlacement.PLACEBEFORE);
 
-        trimContainer(lCopy, lRegion, mode, report);
-        trimContainer(rCopy, rRegion, mode, report);
+        trimContainer(lCopy, lRegion, report);
+        trimContainer(rCopy, rRegion, report);
 
         if (isEmptyFolder(lCopy)) { report.emptyFolders.push(lCopy.name); }
         if (isEmptyFolder(rCopy)) { report.emptyFolders.push(rCopy.name); }
@@ -451,11 +427,10 @@
      * ----------------------------------------------------------------
      */
 
-    function run(targets, splitX, overlap, mode) {
+    function run(targets, splitX, overlap) {
 
         var report = {
             folders: 0,
-            masked: 0,
             cleared: 0,
             rasterized: 0,
             skipped: [],
@@ -466,7 +441,7 @@
         for (var i = 0; i < targets.length; i++) {
 
             try {
-                processFolder(targets[i], splitX, overlap, mode, report);
+                processFolder(targets[i], splitX, overlap, report);
             }
             catch (e) {
                 report.failed.push(targets[i].folder.name + " - " + e.message);
@@ -476,26 +451,18 @@
         return report;
     }
 
-    function buildReportText(report, splitX, overlap, mode) {
+    function buildReportText(report, splitX, overlap, collapseResult) {
 
         var text = "";
 
         text += "Split complete.\n\n";
 
         text += "Split line     : x = " + splitX + "\n";
-        text += "Overlap        : " + overlap + " px\n";
-        text += "Method         : " +
-                (mode === MODE_MASK ? "layer mask" : "delete pixels") + "\n\n";
+        text += "Overlap        : " + overlap + " px\n\n";
 
         text += "Folders split  : " + report.folders + "\n";
-
-        if (mode === MODE_MASK) {
-            text += "Layers masked  : " + report.masked + "\n";
-        }
-        else {
-            text += "Layers trimmed : " + report.cleared + "\n";
-            text += "Rasterized     : " + report.rasterized + "\n";
-        }
+        text += "Layers trimmed : " + report.cleared + "\n";
+        text += "Rasterized     : " + report.rasterized + "\n";
 
         if (report.emptyFolders.length > 0) {
 
@@ -525,10 +492,8 @@
             }
         }
 
-        if (mode === MODE_MASK) {
-
-            text += "\nNote: Cubism Editor ignores layer masks. Apply them\n";
-            text += "before importing this PSD.\n";
+        if (collapseResult === false) {
+            text += "\nCould not collapse the groups on this version.\n";
         }
 
         return text;
@@ -567,36 +532,15 @@
             "Split line : x = " + split.x + "  (" + split.source + ")"
         );
 
-        var methodPanel = dialog.add("panel", undefined, "Split method");
+        var options = dialog.add("panel", undefined, "Options");
 
-        methodPanel.orientation = "column";
-        methodPanel.alignChildren = ["left", "top"];
-        methodPanel.margins = 12;
+        options.orientation = "column";
+        options.alignChildren = ["left", "top"];
+        options.margins = 12;
 
-        var maskRadio = methodPanel.add(
-            "radiobutton",
-            undefined,
-            "Layer mask  -  non-destructive, adjustable later"
-        );
-
-        var deleteRadio = methodPanel.add(
-            "radiobutton",
-            undefined,
-            "Delete pixels  -  ready to import into Cubism"
-        );
-
-        maskRadio.value = true;
-
-        var maskNote = methodPanel.add(
-            "statictext",
-            undefined,
-            "Cubism ignores layer masks; apply them before importing."
-        );
-
-        var overlapGroup = dialog.add("group");
+        var overlapGroup = options.add("group");
 
         overlapGroup.orientation = "row";
-        overlapGroup.alignment = "left";
 
         overlapGroup.add("statictext", undefined, "Overlap :");
 
@@ -608,6 +552,14 @@
             undefined,
             "px past the split line, on each side"
         );
+
+        var collapseCheck = options.add(
+            "checkbox",
+            undefined,
+            "Collapse groups when finished (affects the whole document)"
+        );
+
+        collapseCheck.value = true;
 
         var warning = dialog.add(
             "statictext",
@@ -635,8 +587,8 @@
             }
 
             result = {
-                mode: maskRadio.value ? MODE_MASK : MODE_DELETE,
-                overlap: overlap
+                overlap: overlap,
+                collapse: collapseCheck.value
             };
 
             dialog.close();
@@ -697,7 +649,7 @@
         var report = null;
 
         $.global.__pslrSplitterRun = function () {
-            report = run(targets, split.x, choice.overlap, choice.mode);
+            report = run(targets, split.x, choice.overlap);
         };
 
         try {
@@ -710,7 +662,15 @@
             $.global.__pslrSplitterRun();
         }
 
-        alert(buildReportText(report, split.x, choice.overlap, choice.mode));
+        var collapseResult = null;
+
+        if (choice.collapse) {
+            collapseResult = collapseAllGroups();
+        }
+
+        alert(
+            buildReportText(report, split.x, choice.overlap, collapseResult)
+        );
     }
     finally {
 
