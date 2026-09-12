@@ -2,13 +2,20 @@
 
 [日本語版 README](README.ja.md)
 
-An Adobe Photoshop script (ExtendScript / `.jsx`) that splits folders drawn as
-a single left-and-right pair into two separate folders, cutting the artwork at
-a vertical split line.
+**An Adobe Photoshop script (ExtendScript / `.jsx`) that automates left/right
+part separation for [Live2D](https://www.live2d.com/) character art.**
 
-Written for [Live2D](https://www.live2d.com/) part preparation, where a symmetric
-part such as a pair of ears is often drawn as one image and then has to be
-separated before modeling.
+Character illustrations destined for Live2D Cubism are usually drawn with
+symmetric parts — ears, eyes, eyebrows, arms, strands of hair — as a single
+image. Before the PSD goes into Cubism Editor, each of those has to be split
+into a left part and a right part. In Japanese workflows this step is called
+パーツ分け / 素材分け (part separation, material separation).
+
+Doing it by hand means repeating the same five steps for every part: duplicate
+the group, select half the canvas, delete it, rename the folder, then fix all
+the layer names Photoshop mangled with "copy" suffixes. This script does it for
+every folder in the document at once, cutting at a vertical split line and
+leaving clipping masks, blend modes and layer names intact.
 
 ## What it does
 

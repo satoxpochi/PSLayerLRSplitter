@@ -3,8 +3,11 @@
 /*
  * PSLayerLRSplitter
  *
+ * Left/right part separation for Live2D character art.
+ *
  * Splits every folder whose name ends with a left/right suffix into two
- * folders, cutting the artwork at a vertical split line.
+ * folders, cutting the artwork at a vertical split line, so a symmetric
+ * part drawn as one image becomes two Live2D Cubism parts.
  *
  * Two suffix pairs are recognised:
  *
