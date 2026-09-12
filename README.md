@@ -70,6 +70,10 @@ you use (`*`, numbering, and so on) is preserved.
 - Reports what happened: folders split, layers trimmed, layers skipped, and any
   folder that came out empty
 
+### Screenshot
+
+![The Split LR Folders dialog, showing the backup warning, the folders found, the detected split line, and the overlap and collapse options](screenshot.png)
+
 ## Requirements
 
 Adobe Photoshop with ExtendScript support (CS6 through recent CC releases), on
