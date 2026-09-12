@@ -133,6 +133,24 @@ before importing — a PSD that still carries masks can import incorrectly.
 - A folder whose artwork does not cross the split line still produces both
   halves; the empty one is listed in the result dialog so you can delete it.
 
+## Related tools
+
+This script covers one narrow step. Two official Live2D tools sit next to it in
+the same workflow, and neither replaces it:
+
+- **[Material Separation Photoshop Plugin](https://www.live2d.com/en/cubism/download/material-separation-ps-plugin/)**
+  — AI-assisted cutting out, colour filling and transparency filling, for
+  separating parts out of a flat illustration. It solves the *painting*
+  problem, not the left/right one. A Cubism PRO licence is required.
+- **Live2D_Preprocess** — an official Photoshop script that automatically
+  merges groups, to get a PSD down to one layer per part. It belongs *after*
+  this script in the pipeline, not instead of it. See the
+  [Cubism manual on preparing a PSD](https://sites.google.com/cybernoids.jp/cubism2/editor/modeler/texture/psd).
+
+As far as I could find, nothing existing performs the left/right split itself.
+The general-purpose "split to layers" scripts separate contiguous clusters of
+pixels, which is a different operation.
+
 ## License
 
 [MIT](LICENSE)
