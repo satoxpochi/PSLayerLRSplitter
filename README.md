@@ -88,6 +88,10 @@ In Photoshop, choose **File → Scripts → Browse...** and select
 
 ## Usage
 
+> **Back up your file before you run this.** The script deletes pixels and
+> removes the original folders. One Undo reverts the whole split, but a saved
+> copy is safer.
+
 1. Name the folders you want split so they end in `LR` or `左右`.
 2. If the character is not centred on the canvas, place a single vertical guide
    on the axis of symmetry.

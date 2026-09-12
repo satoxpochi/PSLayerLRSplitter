@@ -505,6 +505,40 @@
      * ----------------------------------------------------------------
      */
 
+    /*
+     * Draw attention to a piece of text.
+     *
+     * Styling through ScriptUI graphics is not supported on every version,
+     * so a failure here is ignored; the wording still carries on its own.
+     */
+    function emphasize(control) {
+
+        try {
+
+            var font = control.graphics.font;
+
+            var name = (font && font.name) ? font.name : "dialog";
+            var size = (font && font.size) ? font.size + 2 : 14;
+
+            control.graphics.font = ScriptUI.newFont(
+                name,
+                ScriptUI.FontStyle.BOLD,
+                size
+            );
+
+            control.graphics.foregroundColor = control.graphics.newPen(
+                control.graphics.PenType.SOLID_COLOR,
+                [0.93, 0.30, 0.24, 1],
+                1
+            );
+        }
+        catch (e) {
+            /*
+             * Best effort only.
+             */
+        }
+    }
+
     function showDialog(targets, split) {
 
         var dialog = new Window("dialog", "Split LR Folders");
@@ -513,6 +547,30 @@
         dialog.alignChildren = ["fill", "top"];
         dialog.spacing = 10;
         dialog.margins = 16;
+
+        var warnPanel = dialog.add("panel", undefined, "Warning");
+
+        warnPanel.orientation = "column";
+        warnPanel.alignChildren = ["left", "top"];
+        warnPanel.margins = 12;
+        warnPanel.spacing = 6;
+
+        var backupText = warnPanel.add(
+            "statictext",
+            undefined,
+            "Back up your file before you run this!"
+        );
+
+        emphasize(backupText);
+        backupText.preferredSize.width = 400;
+
+        var warnDetail = warnPanel.add(
+            "statictext",
+            undefined,
+            "Pixels are deleted and the original folders are removed."
+        );
+
+        warnDetail.preferredSize.width = 400;
 
         var info = dialog.add("panel", undefined, "Target");
 
@@ -561,11 +619,14 @@
 
         collapseCheck.value = true;
 
-        var warning = dialog.add(
+        var undoNote = dialog.add(
             "statictext",
             undefined,
-            "The original " + suffixListText() + " folders will be deleted."
+            "The " + suffixListText() + " folders are deleted. One Undo " +
+                "reverts the whole split."
         );
+
+        undoNote.preferredSize.width = 400;
 
         var buttonGroup = dialog.add("group");
 
