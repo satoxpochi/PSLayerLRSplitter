@@ -110,12 +110,13 @@
     }
 
     /*
-     * Collect the folders to split, each paired with the rule it matched.
+     * Record every matching folder below a folder that already matched.
      *
-     * Only the outermost match in any branch is collected; splitting an
-     * outer folder already splits everything nested inside it.
+     * These are cut along with their parent and never split on their own,
+     * which is almost always a naming mistake, so they are reported by
+     * path rather than silently ignored.
      */
-    function collectTargets(container, out) {
+    function collectNested(container, nested, path) {
 
         for (var i = 0; i < container.layers.length; i++) {
 
@@ -125,15 +126,66 @@
                 continue;
             }
 
+            var childPath = path + " / " + layer.name;
+
+            if (matchSuffixRule(layer.name) !== null) {
+                nested.push(childPath);
+            }
+
+            collectNested(layer, nested, childPath);
+        }
+    }
+
+    /*
+     * Collect the folders to split, each paired with the rule it matched.
+     *
+     * Only the outermost match in any branch is split; splitting an outer
+     * folder already cuts everything nested inside it. Nested matches are
+     * still collected, for the warning.
+     */
+    function collectTargets(container, out, nested, path) {
+
+        for (var i = 0; i < container.layers.length; i++) {
+
+            var layer = container.layers[i];
+
+            if (layer.typename !== "LayerSet") {
+                continue;
+            }
+
+            var childPath = (path === "")
+                ? layer.name
+                : path + " / " + layer.name;
+
             var rule = matchSuffixRule(layer.name);
 
             if (rule !== null) {
                 out.push({ folder: layer, rule: rule });
+                collectNested(layer, nested, childPath);
             }
             else {
-                collectTargets(layer, out);
+                collectTargets(layer, out, nested, childPath);
             }
         }
+    }
+
+    /*
+     * Number of non-folder layers below a container, for the progress bar.
+     */
+    function countLeaves(container) {
+
+        var count = 0;
+
+        for (var i = 0; i < container.layers.length; i++) {
+
+            var layer = container.layers[i];
+
+            count += (layer.typename === "LayerSet")
+                ? countLeaves(layer)
+                : 1;
+        }
+
+        return count;
     }
 
     /*
@@ -285,6 +337,92 @@
 
     /*
      * ----------------------------------------------------------------
+     * Progress window.
+     *
+     * Trimming a layer costs a full-canvas selection and clear, so a large
+     * document takes long enough to look hung. The palette is best effort:
+     * if it cannot be created, the work still runs.
+     * ----------------------------------------------------------------
+     */
+
+    function createProgress(total) {
+
+        var win = null;
+        var bar = null;
+        var label = null;
+        var counter = null;
+
+        try {
+
+            win = new Window("palette", "Splitting...");
+
+            win.orientation = "column";
+            win.alignChildren = ["fill", "top"];
+            win.margins = 16;
+            win.spacing = 8;
+
+            label = win.add("statictext", undefined, "");
+            label.preferredSize = [380, 18];
+
+            bar = win.add("progressbar", undefined, 0, total);
+            bar.preferredSize = [380, 12];
+
+            counter = win.add("statictext", undefined, "0 / " + total);
+            counter.preferredSize = [380, 18];
+
+            win.center();
+            win.show();
+        }
+        catch (e) {
+            win = null;
+        }
+
+        return {
+
+            done: 0,
+            total: total,
+
+            step: function (text) {
+
+                this.done++;
+
+                if (win === null) {
+                    return;
+                }
+
+                try {
+
+                    label.text = (text.length > 58)
+                        ? text.substring(0, 55) + "..."
+                        : text;
+
+                    bar.value = this.done;
+                    counter.text = this.done + " / " + this.total;
+
+                    win.update();
+                }
+                catch (e) {
+                    /*
+                     * A dead palette must not stop the work.
+                     */
+                }
+            },
+
+            close: function () {
+
+                if (win === null) {
+                    return;
+                }
+
+                try { win.close(); } catch (e) {}
+
+                win = null;
+            }
+        };
+    }
+
+    /*
+     * ----------------------------------------------------------------
      * Trimming.
      * ----------------------------------------------------------------
      */
@@ -332,16 +470,18 @@
         }
     }
 
-    function trimContainer(container, region, report) {
+    function trimContainer(container, region, report, progress, label) {
 
         for (var i = 0; i < container.layers.length; i++) {
 
             var layer = container.layers[i];
 
             if (layer.typename === "LayerSet") {
-                trimContainer(layer, region, report);
+                trimContainer(layer, region, report, progress, label);
                 continue;
             }
+
+            progress.step(label + " / " + layer.name);
 
             trimLayer(layer, region, report);
         }
@@ -375,7 +515,7 @@
      * ----------------------------------------------------------------
      */
 
-    function processFolder(target, splitX, overlap, report) {
+    function processFolder(target, splitX, overlap, report, progress) {
 
         var folder = target.folder;
         var rule = target.rule;
@@ -413,8 +553,8 @@
 
         lCopy.move(rCopy, ElementPlacement.PLACEBEFORE);
 
-        trimContainer(lCopy, lRegion, report);
-        trimContainer(rCopy, rRegion, report);
+        trimContainer(lCopy, lRegion, report, progress, lCopy.name);
+        trimContainer(rCopy, rRegion, report, progress, rCopy.name);
 
         if (isEmptyFolder(lCopy)) { report.emptyFolders.push(lCopy.name); }
         if (isEmptyFolder(rCopy)) { report.emptyFolders.push(rCopy.name); }
@@ -430,7 +570,7 @@
      * ----------------------------------------------------------------
      */
 
-    function run(targets, splitX, overlap) {
+    function run(targets, splitX, overlap, progress) {
 
         var report = {
             folders: 0,
@@ -444,7 +584,7 @@
         for (var i = 0; i < targets.length; i++) {
 
             try {
-                processFolder(targets[i], splitX, overlap, report);
+                processFolder(targets[i], splitX, overlap, report, progress);
             }
             catch (e) {
                 report.failed.push(targets[i].folder.name + " - " + e.message);
@@ -454,7 +594,22 @@
         return report;
     }
 
-    function buildReportText(report, splitX, overlap, collapseResult) {
+    /*
+     * Every leaf layer is trimmed once for the left copy and once for the
+     * right one.
+     */
+    function countWork(targets) {
+
+        var total = 0;
+
+        for (var i = 0; i < targets.length; i++) {
+            total += countLeaves(targets[i].folder) * 2;
+        }
+
+        return total;
+    }
+
+    function buildReportText(report, splitX, overlap, collapseResult, nested) {
 
         var text = "";
 
@@ -492,6 +647,16 @@
 
             for (var k = 0; k < report.failed.length; k++) {
                 text += "  " + report.failed[k] + "\n";
+            }
+        }
+
+        if (nested.length > 0) {
+
+            text += "\nNested folders, cut with their parent and NOT split " +
+                    "on their own (" + nested.length + "):\n";
+
+            for (var n = 0; n < nested.length; n++) {
+                text += "  " + nested[n] + "\n";
             }
         }
 
@@ -542,7 +707,7 @@
         }
     }
 
-    function showDialog(targets, split) {
+    function showDialog(targets, split, nested) {
 
         var dialog = new Window("dialog", "Split LR Folders");
 
@@ -574,6 +739,49 @@
         );
 
         warnDetail.preferredSize.width = 400;
+
+        if (nested.length > 0) {
+
+            var nestedPanel = dialog.add(
+                "panel",
+                undefined,
+                "Nested folders (" + nested.length + ")"
+            );
+
+            nestedPanel.orientation = "column";
+            nestedPanel.alignChildren = ["fill", "top"];
+            nestedPanel.margins = 12;
+            nestedPanel.spacing = 6;
+
+            var nestedHead = nestedPanel.add(
+                "statictext",
+                undefined,
+                "These match too, but sit inside another folder that will " +
+                    "be split."
+            );
+
+            emphasize(nestedHead);
+            nestedHead.preferredSize.width = 400;
+
+            var nestedNote = nestedPanel.add(
+                "statictext",
+                undefined,
+                "They are cut along with their parent and are NOT split on " +
+                    "their own. Usually this means a name needs fixing.",
+                { multiline: true }
+            );
+
+            nestedNote.preferredSize = [400, 30];
+
+            var nestedList = nestedPanel.add(
+                "edittext",
+                undefined,
+                nested.join("\n"),
+                { multiline: true, scrolling: true, readonly: true }
+            );
+
+            nestedList.preferredSize = [400, 76];
+        }
 
         var info = dialog.add("panel", undefined, "Target");
 
@@ -681,6 +889,8 @@
     var savedUnits = app.preferences.rulerUnits;
     var savedDialogs = app.displayDialogs;
 
+    var progress = null;
+
     app.preferences.rulerUnits = Units.PIXELS;
     app.displayDialogs = DialogModes.NO;
 
@@ -690,7 +900,9 @@
         docHeight = doc.height.value;
 
         var targets = [];
-        collectTargets(doc, targets);
+        var nested = [];
+
+        collectTargets(doc, targets, nested, "");
 
         if (targets.length === 0) {
 
@@ -704,7 +916,7 @@
         }
 
         var split = findSplitLine();
-        var choice = showDialog(targets, split);
+        var choice = showDialog(targets, split, nested);
 
         if (choice === null) {
             return;
@@ -712,8 +924,10 @@
 
         var report = null;
 
+        progress = createProgress(countWork(targets));
+
         $.global.__pslrSplitterRun = function () {
-            report = run(targets, split.x, choice.overlap);
+            report = run(targets, split.x, choice.overlap, progress);
         };
 
         try {
@@ -726,6 +940,9 @@
             $.global.__pslrSplitterRun();
         }
 
+        progress.close();
+        progress = null;
+
         var collapseResult = null;
 
         if (choice.collapse) {
@@ -733,10 +950,20 @@
         }
 
         alert(
-            buildReportText(report, split.x, choice.overlap, collapseResult)
+            buildReportText(
+                report,
+                split.x,
+                choice.overlap,
+                collapseResult,
+                nested
+            )
         );
     }
     finally {
+
+        if (progress !== null) {
+            progress.close();
+        }
 
         try { doc.selection.deselect(); } catch (e) {}
 

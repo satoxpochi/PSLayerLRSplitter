@@ -66,6 +66,11 @@ you use (`*`, numbering, and so on) is preserved.
   avoid a visible seam when the parts move
 - Optionally collapses the groups afterwards, so the layer panel stays readable
 - Rasterizes text, smart object and fill layers before trimming them
+- Shows a **progress bar** with the layer being worked on, so a large document
+  does not look like it has hung
+- **Warns about nested matches before it runs**, listing them by path, since a
+  matching folder inside another one is cut with its parent instead of being
+  split on its own
 - Runs as a single history state, so one Undo reverts the whole operation
 - Reports what happened: folders split, layers trimmed, layers skipped, and any
   folder that came out empty
@@ -127,7 +132,10 @@ before importing — a PSD that still carries masks can import incorrectly.
   The **Collapse groups when finished** option is the closest thing; it
   collapses every group in the document, not only the ones that were split.
 - Only the outermost matching folder in any branch is processed. An `LR` folder
-  nested inside another `LR` folder is split along with its parent, not twice.
+  nested inside another `LR` folder is cut along with its parent rather than
+  being split on its own. The dialog lists every nested match by path before
+  you commit, and the result dialog repeats the list, so this can be caught and
+  the name fixed.
 - Adjustment layers are skipped; they are usually clipped to a layer that has
   already been trimmed.
 - A folder whose artwork does not cross the split line still produces both
